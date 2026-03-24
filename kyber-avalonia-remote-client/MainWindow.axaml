@@ -11,7 +11,7 @@
         <!-- Connection Bar -->
         <Border Grid.Row="0" Padding="8" Background="#1E1E1E">
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBox Width="200" Watermark="Host" Text="{Binding Host}"
+                <TextBox Width="200" Watermark="Host IP (from server)" Text="{Binding Host}"
                          IsEnabled="{Binding CanConnect}" />
                 <TextBox Width="120" Watermark="Username" Text="{Binding Username}"
                          IsEnabled="{Binding CanConnect}" />

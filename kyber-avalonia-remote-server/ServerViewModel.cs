@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -23,6 +26,8 @@ public class ServerViewModel : INotifyPropertyChanged, IDisposable
     private string _password = "demo";
     private bool _softwareEncode;
     private bool _disposed;
+    private string _connectionInfo = "";
+    private string _lanIp = "";
 
     private readonly ControllerProcess _controller = new();
 
@@ -74,6 +79,18 @@ public class ServerViewModel : INotifyPropertyChanged, IDisposable
         set => SetField(ref _softwareEncode, value);
     }
 
+    public string ConnectionInfo
+    {
+        get => _connectionInfo;
+        set => SetField(ref _connectionInfo, value);
+    }
+
+    public string LanIp
+    {
+        get => _lanIp;
+        set => SetField(ref _lanIp, value);
+    }
+
     public bool IsRunning => _serverState == ServerState.Running;
     public bool CanStart => _serverState is ServerState.Stopped or ServerState.Error;
 
@@ -94,6 +111,10 @@ public class ServerViewModel : INotifyPropertyChanged, IDisposable
         StopCommand = new RelayCommand(_ => StopServer(), _ => IsRunning);
         BrowseCommand = new RelayCommand(_ => { /* File picker handled in code-behind */ });
         ClearLogCommand = new RelayCommand(_ => LogEntries.Clear());
+
+        // Detect LAN IP addresses
+        LanIp = DetectLanIp();
+        AddLog($"LAN IP: {LanIp}");
 
         // Auto-detect controller path
         var detected = ControllerProcess.FindControllerPath();
@@ -143,7 +164,9 @@ public class ServerViewModel : INotifyPropertyChanged, IDisposable
 
             ServerState = ServerState.Running;
             StatusText = $"Running on port {Port}";
+            ConnectionInfo = $"{LanIp}:{Port}";
             AddLog($"Controller started on port {Port}");
+            AddLog($"Client connection info:  Host: {LanIp}  Port: {Port}  Password: {Password}");
         }
         catch (Exception ex)
         {
@@ -162,6 +185,7 @@ public class ServerViewModel : INotifyPropertyChanged, IDisposable
             AddLog("Stopping controller...");
             _controller.Stop();
             StatusText = "Stopped";
+            ConnectionInfo = "";
             ServerState = ServerState.Stopped;
             AddLog("Controller stopped");
         }
@@ -190,6 +214,51 @@ public class ServerViewModel : INotifyPropertyChanged, IDisposable
         // Keep log manageable
         while (LogEntries.Count > 1000)
             LogEntries.RemoveAt(0);
+    }
+
+    private static string DetectLanIp()
+    {
+        try
+        {
+            // Find the best LAN IP by looking at active network interfaces
+            foreach (var iface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (iface.OperationalStatus != OperationalStatus.Up) continue;
+                if (iface.NetworkInterfaceType is NetworkInterfaceType.Loopback
+                    or NetworkInterfaceType.Tunnel) continue;
+
+                var props = iface.GetIPProperties();
+                foreach (var addr in props.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    var ip = addr.Address.ToString();
+                    // Skip link-local and loopback
+                    if (ip.StartsWith("127.") || ip.StartsWith("169.254.")) continue;
+                    return ip;
+                }
+            }
+        }
+        catch
+        {
+            // Fallback below
+        }
+
+        // Fallback: use DNS
+        try
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    return ip.ToString();
+            }
+        }
+        catch
+        {
+            // Give up
+        }
+
+        return "unknown";
     }
 
     public void Dispose()

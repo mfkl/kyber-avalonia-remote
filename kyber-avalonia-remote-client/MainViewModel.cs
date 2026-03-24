@@ -19,7 +19,7 @@ public enum ConnectionState
 
 public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
-    private string _host = "localhost";
+    private string _host = "";
     private string _username = "demo";
     private string _password = "demo";
     private ConnectionState _connectionState = ConnectionState.Disconnected;
@@ -163,13 +163,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         ConnectCommand = new RelayCommand(_ => Connect(), _ => CanConnect);
         DisconnectCommand = new RelayCommand(_ => Disconnect(), _ => IsConnected);
-
-        // Auto-connect for testing
-        Task.Run(async () =>
-        {
-            await Task.Delay(2000); // Wait for window to initialize
-            Dispatcher.UIThread.Post(() => Connect());
-        });
     }
 
     /// <summary>
