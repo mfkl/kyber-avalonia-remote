@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="KyberAvaloniaRemoteServer.MainWindow"
+        Title="{Binding WindowTitle}"
+        Width="800" Height="600"
+        MinWidth="600" MinHeight="400">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- Server Configuration -->
+        <Border Grid.Row="0" Padding="12" Background="#1E1E1E">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Kyber Server" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" />
+
+                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,4,0,0">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Controller:" VerticalAlignment="Center"
+                               Foreground="#CCCCCC" Margin="0,0,8,4" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ControllerPath}"
+                             Watermark="Path to controller.exe / kycontroller"
+                             IsEnabled="{Binding CanStart}" Margin="0,0,4,4" />
+                    <Button Grid.Row="0" Grid.Column="2" Content="Browse..."
+                            Command="{Binding BrowseCommand}"
+                            IsEnabled="{Binding CanStart}" Margin="0,0,0,4"
+                            Name="BrowseButton" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" VerticalAlignment="Center"
+                               Foreground="#CCCCCC" Margin="0,0,8,4" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Port}"
+                             Width="80" HorizontalAlignment="Left"
+                             IsEnabled="{Binding CanStart}" Margin="0,0,0,4" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Password:" VerticalAlignment="Center"
+                               Foreground="#CCCCCC" Margin="0,0,8,4" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Password}"
+                             Width="200" HorizontalAlignment="Left"
+                             PasswordChar="&#x2022;"
+                             IsEnabled="{Binding CanStart}" Margin="0,0,0,4" />
+
+                    <CheckBox Grid.Row="3" Grid.Column="1" Content="Software Encode"
+                              IsChecked="{Binding SoftwareEncode}"
+                              IsEnabled="{Binding CanStart}"
+                              Foreground="#CCCCCC" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Control Bar -->
+        <Border Grid.Row="1" Padding="12,8" Background="#252525">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Start Server" Command="{Binding StartCommand}"
+                        IsVisible="{Binding CanStart}"
+                        Classes="accent" />
+                <Button Content="Stop Server" Command="{Binding StopCommand}"
+                        IsVisible="{Binding IsRunning}" />
+                <Button Content="Clear Log" Command="{Binding ClearLogCommand}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Log Output -->
+        <Border Grid.Row="2" Padding="4" Background="#0D0D0D">
+            <ListBox ItemsSource="{Binding LogEntries}"
+                     Name="LogList"
+                     Background="#0D0D0D"
+                     Foreground="#00FF00"
+                     FontFamily="Consolas,Menlo,monospace"
+                     FontSize="12"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </Border>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="3" Padding="8,4" Background="#1E1E1E">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <TextBlock Text="{Binding StatusText}" Foreground="#CCCCCC" />
+            </StackPanel>
+        </Border>
+
+    </Grid>
+
+</Window>

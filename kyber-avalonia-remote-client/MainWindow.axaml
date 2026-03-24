@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:KyberAvaloniaRemoteClient"
+        x:Class="KyberAvaloniaRemoteClient.MainWindow"
+        Title="{Binding WindowTitle}"
+        Width="1280" Height="720"
+        MinWidth="640" MinHeight="480">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Connection Bar -->
+        <Border Grid.Row="0" Padding="8" Background="#1E1E1E">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox Width="200" Watermark="Host" Text="{Binding Host}"
+                         IsEnabled="{Binding CanConnect}" />
+                <TextBox Width="120" Watermark="Username" Text="{Binding Username}"
+                         IsEnabled="{Binding CanConnect}" />
+                <TextBox Width="120" Watermark="Password" Text="{Binding Password}"
+                         PasswordChar="&#x2022;" IsEnabled="{Binding CanConnect}" />
+                <Button Content="Connect" Command="{Binding ConnectCommand}"
+                        IsVisible="{Binding CanConnect}" />
+                <Button Content="Disconnect" Command="{Binding DisconnectCommand}"
+                        IsVisible="{Binding IsConnected}" />
+                <CheckBox Content="SW Decode" IsChecked="{Binding SoftwareDecode}"
+                          IsEnabled="{Binding CanConnect}" VerticalAlignment="Center"
+                          Foreground="#CCCCCC" />
+            </StackPanel>
+        </Border>
+
+        <!-- Video Render Area -->
+        <Panel Grid.Row="1" Background="#000000" Name="VideoPanel">
+            <local:NativeVideoHost Name="VideoHost"
+                                   Focusable="True" />
+        </Panel>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2" Padding="8,4" Background="#1E1E1E">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <TextBlock Text="{Binding StatusText}" Foreground="#CCCCCC" />
+                <TextBlock Text="{Binding BitrateText}" Foreground="#999999" />
+                <TextBlock Text="{Binding LatencyText}" Foreground="#999999" />
+                <TextBlock Text="{Binding FpsText}" Foreground="#999999" />
+                <TextBlock Name="VolumeText" Foreground="#999999" />
+            </StackPanel>
+        </Border>
+
+    </Grid>
+
+</Window>
