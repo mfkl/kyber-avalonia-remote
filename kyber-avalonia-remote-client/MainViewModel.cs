@@ -19,7 +19,7 @@ public enum ConnectionState
 
 public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
-    private string _host = "";
+    private string _host = "10.10.6.79";
     private string _username = "demo";
     private string _password = "demo";
     private ConnectionState _connectionState = ConnectionState.Disconnected;
@@ -32,6 +32,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _softwareDecode = true;
     private bool _disposed;
     private bool _restartingStreaming;
+    private string _logText = "[startup] Log panel initialized";
+    private const int MaxLogLines = 50;
 
     // FPS tracking: count FrameRendered metrics per second
     private int _frameCount;
@@ -141,6 +143,38 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set => SetField(ref _isMuted, value);
     }
 
+    public string LogText
+    {
+        get => _logText;
+        set => SetField(ref _logText, value);
+    }
+
+    public void AppendLog(string message)
+    {
+        var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+        var line = $"[{timestamp}] {message}";
+        Console.WriteLine($"LOG: {line}");
+
+        // Update UI on the UI thread
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            UpdateLogText(line);
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(() => UpdateLogText(line));
+        }
+    }
+
+    private void UpdateLogText(string line)
+    {
+        var lines = _logText.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+        lines.Add(line);
+        while (lines.Count > MaxLogLines)
+            lines.RemoveAt(0);
+        LogText = string.Join("\n", lines);
+    }
+
     public bool IsConnected => _connectionState is ConnectionState.Connected
         or ConnectionState.Streaming
         or ConnectionState.Reconnecting;
@@ -163,6 +197,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         ConnectCommand = new RelayCommand(_ => Connect(), _ => CanConnect);
         DisconnectCommand = new RelayCommand(_ => Disconnect(), _ => IsConnected);
+        AppendLog("Kyber client started");
     }
 
     /// <summary>
@@ -171,6 +206,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public void SetVideoHost(NativeVideoHost videoHost)
     {
         _videoHost = videoHost;
+        AppendLog("UI initialized - ready to connect");
     }
 
     private void Connect()
@@ -179,12 +215,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
+            AppendLog($"Connecting to {Host}...");
             ConnectionState = ConnectionState.Connecting;
 
             // Enable native logging on first connect
             KyberLog.SetLogCallback((level, target, message) =>
             {
                 Console.WriteLine($"[Kyber/{level}] {target}: {message}");
+                // Only show Info/Warn/Error in UI (skip Debug/Trace)
+                if (level is "Info" or "Warn" or "Error")
+                    AppendLog($"{level}: {message}");
             });
 
             _credentials = AuthCredentials.CreateBasic(Username, Password);
@@ -199,6 +239,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (Exception ex)
         {
+            AppendLog($"Connection failed: {ex}");
             StatusText = $"Connection failed: {ex.Message}";
             ConnectionState = ConnectionState.Error;
             CleanupConnection();
@@ -263,10 +304,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 break;
 
             case EventType.StreamingStarted:
+                AppendLog("Streaming started");
                 ConnectionState = ConnectionState.Streaming;
                 break;
 
             case EventType.StreamingStartFailed:
+                AppendLog("ERROR: Streaming failed to start");
                 StatusText = "Streaming failed to start";
                 ConnectionState = ConnectionState.Error;
                 CleanupConnection();
@@ -290,6 +333,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
             case EventType.Reconnecting:
                 var reconnecting = (ReconnectingEventArgs)e;
+                AppendLog($"Reconnecting (attempt {reconnecting.Attempt}/{reconnecting.MaxAttempts})");
                 ConnectionState = ConnectionState.Reconnecting;
                 StatusText = $"Reconnecting to {Host}... (attempt {reconnecting.Attempt}/{reconnecting.MaxAttempts})";
                 break;
@@ -339,12 +383,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 break;
 
             case EventType.ControlPlaneConnectFailed:
+                AppendLog("ERROR: Connection refused");
                 StatusText = "Connection refused";
                 ConnectionState = ConnectionState.Error;
                 CleanupConnection();
                 break;
 
             case EventType.DataPlaneConnectFailed:
+                AppendLog("ERROR: Data plane connection failed");
                 StatusText = "Data plane connection failed";
                 ConnectionState = ConnectionState.Error;
                 CleanupConnection();
@@ -352,15 +398,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
             case EventType.StreamerPipelineEvent:
                 var pipeline = (StreamerPipelineEventArgs)e;
-                Console.WriteLine($"Pipeline: {pipeline.PipelineType}/{pipeline.Stage}/{pipeline.PipelineEventType}");
+                AppendLog($"Pipeline: {pipeline.PipelineType}/{pipeline.Stage}/{pipeline.PipelineEventType}");
                 break;
 
             case EventType.InputServiceConnected:
-                Console.WriteLine("Input service connected");
+                AppendLog("Input service connected");
                 break;
 
             case EventType.InputServiceDisconnected:
-                Console.WriteLine("Input service disconnected");
+                AppendLog("Input service disconnected");
                 break;
 
             case EventType.DataPlaneClosed:
@@ -507,14 +553,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             _client = null;
         }
 
-        try { _inputPipeline?.Stop(); }
-        catch (Exception ex) { Console.WriteLine($"InputPipeline.Stop failed: {ex.Message}"); }
-        try { _inputPipeline?.Dispose(); }
-        catch (Exception ex) { Console.WriteLine($"InputPipeline.Dispose failed: {ex.Message}"); }
-        _inputPipeline = null;
-
-        _inputSessionConfig?.Dispose();
+        // BUG WORKAROUND: On macOS, kyclient_input_session_config_unref crashes with SIGSEGV
+        // when trying to unref the pipeline (pointer authentication failure). This is a native
+        // bug where the pipeline pointer becomes invalid. Skip disposing the session config
+        // and pipeline entirely on exit - the OS will reclaim the memory anyway.
+        //
+        // Original logic: The native kyclient_input_session_config_unref internally unrefs the
+        // pipeline, so we must NOT dispose InputPipeline separately if an InputSessionConfig
+        // was created (the config takes ownership of the pipeline).
         _inputSessionConfig = null;
+        _inputPipeline = null;
 
         _videoLayout?.Dispose();
         _videoLayout = null;

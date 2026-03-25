@@ -3,10 +3,10 @@
         xmlns:local="clr-namespace:KyberAvaloniaRemoteClient"
         x:Class="KyberAvaloniaRemoteClient.MainWindow"
         Title="{Binding WindowTitle}"
-        Width="1280" Height="720"
-        MinWidth="640" MinHeight="480">
+        Width="1400" Height="720"
+        MinWidth="800" MinHeight="480">
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,*,150,Auto">
 
         <!-- Connection Bar -->
         <Border Grid.Row="0" Padding="8" Background="#1E1E1E">
@@ -28,13 +28,37 @@
         </Border>
 
         <!-- Video Render Area -->
-        <Panel Grid.Row="1" Background="#000000" Name="VideoPanel">
+        <Panel Grid.Row="1" Background="#000000" Name="VideoPanel" ClipToBounds="True">
             <local:NativeVideoHost Name="VideoHost"
-                                   Focusable="True" />
+                                   ClipToBounds="True" />
+            <!-- Transparent overlay to capture input events (VLC steals them otherwise) -->
+            <Border Name="InputOverlay"
+                    Background="Transparent"
+                    Focusable="True"
+                    IsHitTestVisible="True" />
         </Panel>
 
+        <!-- Log Panel (bottom, fixed height) -->
+        <Border Grid.Row="2" Background="#0D0D0D" BorderBrush="#333333" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="Auto,*">
+                <Border Grid.Column="0" Background="#1A1A1A" Padding="8,4" Width="100">
+                    <TextBlock Text="Logs" Foreground="#AAAAAA" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </Border>
+                <ScrollViewer Grid.Column="1" Name="LogScrollViewer"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              Padding="8,4">
+                    <TextBlock Text="{Binding LogText}"
+                               FontFamily="Consolas,Menlo,monospace"
+                               FontSize="11"
+                               Foreground="#00FF00"
+                               TextWrapping="NoWrap" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
         <!-- Status Bar -->
-        <Border Grid.Row="2" Padding="8,4" Background="#1E1E1E">
+        <Border Grid.Row="3" Padding="8,4" Background="#1E1E1E">
             <StackPanel Orientation="Horizontal" Spacing="16">
                 <TextBlock Text="{Binding StatusText}" Foreground="#CCCCCC" />
                 <TextBlock Text="{Binding BitrateText}" Foreground="#999999" />

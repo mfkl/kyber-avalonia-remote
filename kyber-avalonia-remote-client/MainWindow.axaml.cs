@@ -27,18 +27,21 @@ public partial class MainWindow : Window
     {
         ViewModel.SetVideoHost(VideoHost);
 
-        // Wire up input events on the video host
-        VideoHost.PointerPressed += OnVideoPointerPressed;
-        VideoHost.PointerReleased += OnVideoPointerReleased;
-        VideoHost.PointerMoved += OnVideoPointerMoved;
-        VideoHost.PointerWheelChanged += OnVideoPointerWheelChanged;
-        VideoHost.KeyDown += OnVideoKeyDown;
-        VideoHost.KeyUp += OnVideoKeyUp;
-        VideoHost.TextInput += OnVideoTextInput;
+        // Auto-connect on startup
+        Dispatcher.UIThread.Post(() => ViewModel.ConnectCommand.Execute(null));
+
+        // Wire up input events on the INPUT OVERLAY (not VideoHost - VLC steals events on macOS)
+        InputOverlay.PointerPressed += OnVideoPointerPressed;
+        InputOverlay.PointerReleased += OnVideoPointerReleased;
+        InputOverlay.PointerMoved += OnVideoPointerMoved;
+        InputOverlay.PointerWheelChanged += OnVideoPointerWheelChanged;
+        InputOverlay.KeyDown += OnVideoKeyDown;
+        InputOverlay.KeyUp += OnVideoKeyUp;
+        InputOverlay.TextInput += OnVideoTextInput;
 
         // Focus tracking for input suppression
-        VideoHost.GotFocus += OnVideoHostGotFocus;
-        VideoHost.LostFocus += OnVideoHostLostFocus;
+        InputOverlay.GotFocus += OnVideoHostGotFocus;
+        InputOverlay.LostFocus += OnVideoHostLostFocus;
 
         // Release mouse capture when window deactivates (Alt+Tab, etc.)
         Deactivated += OnWindowDeactivated;
@@ -82,11 +85,13 @@ public partial class MainWindow : Window
     private void OnVideoHostGotFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         _isVideoFocused = true;
+        ViewModel.AppendLog("Video got focus - input forwarding enabled");
     }
 
     private void OnVideoHostLostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         _isVideoFocused = false;
+        ViewModel.AppendLog("Video lost focus - input forwarding disabled");
         ReleaseAllKeys();
     }
 
@@ -117,22 +122,34 @@ public partial class MainWindow : Window
 
     private void OnVideoPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        // Grab focus and capture pointer to the video area
-        VideoHost.Focus();
-        e.Pointer.Capture(VideoHost);
+        // Grab focus and capture pointer to the input overlay
+        InputOverlay.Focus();
+        e.Pointer.Capture(InputOverlay);
 
         var pipeline = ViewModel.InputPipeline;
-        if (pipeline is null) return;
+        if (pipeline is null)
+        {
+            ViewModel.AppendLog("Mouse click ignored - no pipeline");
+            return;
+        }
 
         var point = e.GetCurrentPoint(VideoHost);
         var buttonType = MapMouseButton(point.Properties.PointerUpdateKind);
         if (buttonType is null) return;
 
-        using var packet = KyberSharp.Api.MouseButton.ToPacket(InputTarget.Host, buttonType.Value, true);
-        pipeline.SendPacket(packet);
+        ViewModel.AppendLog($"Mouse {buttonType} pressed");
+        try
+        {
+            using var packet = KyberSharp.Api.MouseButton.ToPacket(InputTarget.Host, buttonType.Value, true);
+            pipeline.SendPacket(packet);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.AppendLog($"SendPacket error: {ex.Message}");
+        }
 
         // Also send position
-        SendMousePosition(e.GetPosition(VideoHost));
+        SendMousePosition(e.GetPosition(InputOverlay));
     }
 
     private void OnVideoPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -152,25 +169,58 @@ public partial class MainWindow : Window
 
     private void OnVideoPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (!_isVideoFocused || ViewModel.InputPipeline is null) return;
-        SendMousePosition(e.GetPosition(VideoHost));
+        if (!_isVideoFocused)
+        {
+            // Log once per second max
+            if ((DateTime.UtcNow - _lastMouseLog).TotalSeconds > 2)
+            {
+                ViewModel.AppendLog("Mouse move ignored - click video to focus");
+                _lastMouseLog = DateTime.UtcNow;
+            }
+            return;
+        }
+        if (ViewModel.InputPipeline is null) return;
+        SendMousePosition(e.GetPosition(InputOverlay));
     }
+
+    private DateTime _lastMouseLog = DateTime.MinValue;
 
     private void SendMousePosition(Point localPos)
     {
         var pipeline = ViewModel.InputPipeline;
         var layout = ViewModel.VideoLayout;
         var displays = ViewModel.Displays;
-        if (pipeline is null || layout is null || displays is null || displays.Count == 0) return;
+        if (pipeline is null || layout is null || displays is null || displays.Count == 0)
+        {
+            if ((DateTime.UtcNow - _lastMouseLog).TotalSeconds > 1)
+            {
+                ViewModel.AppendLog($"Mouse move ignored - pipeline={pipeline is not null} layout={layout is not null} displays={displays?.Count ?? 0}");
+                _lastMouseLog = DateTime.UtcNow;
+            }
+            return;
+        }
 
         if (layout.LocalToHost(localPos.X, localPos.Y, false, out var hostX, out var hostY))
         {
+            if ((DateTime.UtcNow - _lastMouseLog).TotalSeconds > 1)
+            {
+                ViewModel.AppendLog($"Mouse pos: local=({localPos.X:F0},{localPos.Y:F0}) -> host=({hostX},{hostY})");
+                _lastMouseLog = DateTime.UtcNow;
+            }
             using var packet = MousePosition.ToPacket(
                 InputTarget.Host,
                 displays[0].Id,
                 (short)hostX,
                 (short)hostY);
             pipeline.SendPacket(packet);
+        }
+        else
+        {
+            if ((DateTime.UtcNow - _lastMouseLog).TotalSeconds > 1)
+            {
+                ViewModel.AppendLog($"Mouse pos: local=({localPos.X:F0},{localPos.Y:F0}) -> outside host bounds");
+                _lastMouseLog = DateTime.UtcNow;
+            }
         }
     }
 
@@ -201,11 +251,20 @@ public partial class MainWindow : Window
     private void SendKeyEvent(KeyEventArgs e, bool pressed)
     {
         var pipeline = ViewModel.InputPipeline;
-        if (!_isVideoFocused || pipeline is null) return;
+        if (!_isVideoFocused || pipeline is null)
+        {
+            if (pressed)
+                ViewModel.AppendLog($"Key ignored - focus={_isVideoFocused} pipeline={pipeline is not null}");
+            return;
+        }
 
         // Use the physical key's native scancode when available
         var keycode = GetPlatformKeycode(e);
-        if (keycode == 0) return;
+        if (keycode == 0)
+        {
+            ViewModel.AppendLog($"Key {e.PhysicalKey} has no platform keycode");
+            return;
+        }
 
         if (KeyboardKey.MapKeycode(keycode, out var scancode))
         {
@@ -215,8 +274,20 @@ public partial class MainWindow : Window
             else
                 _pressedScancodes.Remove(scancode);
 
-            using var packet = KeyboardKey.ToPacket(InputTarget.Host, scancode, pressed);
-            pipeline.SendPacket(packet);
+            ViewModel.AppendLog($"Key {e.PhysicalKey} -> sc={scancode} {(pressed ? "down" : "up")}");
+            try
+            {
+                using var packet = KeyboardKey.ToPacket(InputTarget.Host, scancode, pressed);
+                pipeline.SendPacket(packet);
+            }
+            catch (Exception ex)
+            {
+                ViewModel.AppendLog($"Key SendPacket error: {ex.Message}");
+            }
+        }
+        else
+        {
+            ViewModel.AppendLog($"Key {e.PhysicalKey} keycode={keycode} - no scancode mapping");
         }
     }
 

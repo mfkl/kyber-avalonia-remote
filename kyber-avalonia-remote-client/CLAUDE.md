@@ -1,6 +1,64 @@
 # Kyber Avalonia Client
 
-## Build & Run
+## Build & Run (macOS)
+
+Requires .NET 10 SDK. Install via homebrew:
+```bash
+brew install dotnet-sdk
+```
+
+Build:
+```bash
+dotnet build -c Debug
+```
+
+### Native Libraries Setup (macOS)
+
+The native libraries must be copied to the app's native folder before running:
+
+```bash
+# Copy libkyclient
+cp /Users/martin/code/kyber/kyber-desktop/kysdk/kyctl/target/aarch64-apple-darwin/release/libkyclient.dylib \
+   bin/Debug/net10.0/runtimes/osx/native/
+
+# Copy VLC libraries (libkyclient depends on these via @rpath)
+cp /Users/martin/code/kyber/kyber-desktop/kysdk/kyctl/rootfs-arm64-apple-darwin/lib/libvlc*.dylib \
+   bin/Debug/net10.0/runtimes/osx/native/
+```
+
+**CRITICAL: Remove duplicate kynput libraries to prevent crashes**
+
+The build may copy kynput libraries to `bin/Debug/net10.0/` alongside the executable. These MUST be removed to prevent dual-library loading crashes (SIGSEGV in `PacketQueue::push`):
+
+```bash
+rm -f bin/Debug/net10.0/libkynput*.dylib
+rm -f bin/Debug/net10.0/runtimes/osx/native/libkynput*.dylib
+```
+
+The kynput library is already loaded by libkyclient from its hardcoded rootfs path. Having a second copy causes mutex poisoning and memory corruption.
+
+### Run (macOS)
+
+Due to `@rpath` in libkyclient.dylib, must set DYLD_LIBRARY_PATH to include both the native folder and the rootfs:
+
+```bash
+cd bin/Debug/net10.0/runtimes/osx/native
+DYLD_LIBRARY_PATH=$(pwd):/Users/martin/code/kyber/kyber-desktop/kysdk/kyctl/rootfs-arm64-apple-darwin/lib ../../../KyberAvaloniaRemoteClient
+```
+
+Or as a one-liner:
+```bash
+DYLD_LIBRARY_PATH=$PWD/bin/Debug/net10.0/runtimes/osx/native:/Users/martin/code/kyber/kyber-desktop/kysdk/kyctl/rootfs-arm64-apple-darwin/lib ./bin/Debug/net10.0/KyberAvaloniaRemoteClient
+```
+
+### Debug library loading (macOS)
+```bash
+DYLD_PRINT_LIBRARIES=1 DYLD_LIBRARY_PATH=... ./KyberAvaloniaRemoteClient
+```
+
+---
+
+## Build & Run (Windows/WSL)
 
 Build from WSL (sandbox requires `dangerouslyDisableSandbox` for dotnet due to `/tmp/.dotnet/shm` mutex):
 
@@ -58,6 +116,12 @@ grep "vlc\|kymux\|Play video\|Play audio\|unable to open" /mnt/c/temp/kyber-aval
 
 - **Exit code 29**: Native crash in `kynput_pipeline_stop` during disconnect cleanup. Wrapped in try/catch to prevent process termination, but the underlying native bug remains.
 - **VLC plugins not in NuGet**: The Kyber.Native NuGet packages do not include VLC plugin directories. They must be manually copied from the server distribution or build output.
+
+## Fixed Issues
+
+- **macOS input crash (FIXED)**: Previously, clicking in the video area caused SIGSEGV crashes. Root causes:
+  1. **Double-free bug**: In `kynput/src/capi/mod.rs`, `kynput_consumer_consume()` was calling `Box::from_raw(pkt)` which took ownership and freed the packet, while the C# caller also freed it. Fixed by cloning the packet instead: `let pkt = (*pkt).clone();`
+  2. **Dual library loading**: The build copied libkynput.dylib to both `bin/Debug/net10.0/` and potentially `runtimes/osx/native/`, while libkyclient.dylib loads libkynput.0.1.0.dylib from a hardcoded rootfs path. Two library instances with separate global state caused mutex poisoning. Fixed by removing duplicate libkynput libraries from the app directories.
 
 ## Connection Defaults
 
