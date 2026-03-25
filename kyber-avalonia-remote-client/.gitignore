@@ -2,3 +2,10 @@ bin/
 obj/
 .vs/
 *.user
+
+# Local planning/spec files (not tracked)
+specs/
+AGENTS.md
+IMPLEMENTATION_PLAN.md
+PROMPT_*.md
+loop.sh
